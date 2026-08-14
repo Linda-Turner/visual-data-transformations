@@ -83,11 +83,10 @@ def load_llava_model(llava_model):
 
 def describe_image(image, processor, model, description_method):
     if description_method == 'general':
-        PROMPT = "Describe this image. Describe only what is visually observable, including people, objects, text, symbols," \
-        "and the overall scene. Do not discuss its purpose, meaning, narrative, or make assumptions about what the image communicates."
+        PROMPT = "Describe the images in high detail. Describe the general scene of the image as well as visual details."\
+        "Do not discuss its purpose, meaning or narrative. Do not make assumptions about what the image communicates."
     elif description_method == 'narrative':
-        PROMPT = "Describe this image. Describe only what is visually observable, including people, objects, text, symbols," \
-        "and the overall scene. Do not discuss its purpose, meaning, narrative, or make assumptions about what the image communicates."
+        PROMPT = "Describe what this image is trying to communicate. Discuss its purpose, meaning and narrative."
 
     conversation = [
         {
