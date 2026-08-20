@@ -1,7 +1,8 @@
 import os
+from PIL import Image
 from imagehash import average_hash, phash, phash_simple, dhash, dhash_vertical, whash, colorhash, crop_resistant_hash, hex_to_hash, hex_to_multihash
 
-HASH_hashing_methodS = {
+HASH_hashing_methods = {
     "average": average_hash,
     "phash": phash,
     "phash_simple": phash_simple,
@@ -15,16 +16,20 @@ HASH_hashing_methodS = {
 def check_args(**kwargs):
     hashing_method = kwargs.get("hashing_method", "phash")
     errors=[]
-    if hashing_method not in HASH_hashing_methodS :errors.append(f"embedding_hashing_method must be {list(HASH_hashing_methodS.keys())}, got '{hashing_method}'")
+    if hashing_method not in HASH_hashing_methods :errors.append(f"embedding_hashing_method must be {list(HASH_hashing_methods.keys())}, got '{hashing_method}'")
     if errors:
         raise ValueError("\n".join(errors))
 
 def setup(transformation, output_dir, **kwargs):
     """
-    Prepare the transformation directory if necessary and define the output columns.
+    Prepare the output file and directory for the transformation and define the transformation context.
 
     Returns:
-        Tuple[str, list[str]]: a tuple of the transformation directory and a list of the columns names
+        tuple[str, list[str], dict, str]: A tuple containing:
+            - Path to the CSV file where transformation metadata will be saved.
+            - Column names for the transformation metadata CSV file.
+            - Transformation parameters used during processing.
+            - Directory where transformed images will be saved.
     """
     print(f"\n{'='*60}")
     print("Setting up hashing context...")
@@ -49,10 +54,11 @@ def format_output(result, row, transformation_dir):
     return output_row
 
 
-def transform(image, context):
+def transform(image_file, context):
     """
-    Apply the selected hashing hashing_methods to an image.
+    Apply the selected hashing method to an image.
     """
+    image = Image.open(image_file)
     hashing_method = context['hashing_method']
     return image_hash(image, hashing_method)
 
@@ -76,7 +82,7 @@ def image_hash(image, hashing_method : (str) = "phash"):
     Returns:
         Dictionary mapping hashing_method names to hexadecimal hash strings.
     """
-    return str(HASH_hashing_methodS[hashing_method](image))
+    return str(HASH_hashing_methods[hashing_method](image))
     
 
 def restore_hash(hash_value):

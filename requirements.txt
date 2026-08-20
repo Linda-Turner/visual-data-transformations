@@ -1,6 +1,12 @@
-numpy
 torch
-transformers
-opencv-python
-Pillow
-ImageHash
+pandas 
+retina-face 
+tf-keras 
+transformers 
+torchvision==0.28.0 
+regex>=2025.10.22 
+diffusers 
+opencv-python 
+Pillow 
+ImageHash 
+filetype

@@ -19,11 +19,13 @@ def main():
     )
     parser.add_argument(
         "-t", "--transformation",
-        choices=["embedding","description","hashing","face_obstruction",],
-        help="Transformation to apply."
+        choices=["embedding","description","hashing","face_obstruction","regeneration"],
+        help="Transformation to apply.",
+        required=True,
     )
     parser.add_argument(
         "-i", "--input_file",
+        required=True,
     )
     parser.add_argument(
         "-o", "--output_dir",
@@ -32,45 +34,14 @@ def main():
 
     # Face obstruction arguments
     parser.add_argument(
-        "--obstruction_n_neighbors",
-        type=int,
-        default=4
-    )
-
-    parser.add_argument(
-        "--obstruction_scale_factor",
-        type=float,
-        default=1.3
-    )
-
-    parser.add_argument(
         "--obstruction_sigma",
         type=float,
         default=30
     )
-
     parser.add_argument(
         "--obstruction_pixel_size",
         type=int,
         default=10
-    )
-
-    parser.add_argument(
-        "--obstruction_face_h",
-        type=float,
-        default=0.48
-    )
-
-    parser.add_argument(
-        "--obstruction_face_w",
-        type=float,
-        default=0.42
-    )
-
-    parser.add_argument(
-        "--obstruction_face_angle",
-        type=float,
-        default=0
     )
     parser.add_argument(
         "--obstruction_method",
@@ -104,7 +75,7 @@ def main():
     # Description arguments
     parser.add_argument(
         "--description_model",
-        default=None
+        default= "google/gemma-4-E2B-it"
     )
     parser.add_argument(
         "--description_method",
@@ -112,6 +83,16 @@ def main():
         choices=["descriptive", "narrative"],
         help="Image description method to use."
     )
+    #Regeneration
+    parser.add_argument(
+        "--regeneration_descriptions",
+        help="Image descriptions to base the regeneration on."
+    )
+    parser.add_argument(
+        "--regeneration_model",
+        default="sd2-community/stable-diffusion-2-1",
+    )
+
 
     args = parser.parse_args()
     kwargs = vars(args)

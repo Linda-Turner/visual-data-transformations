@@ -2,6 +2,7 @@ import os
 import numpy as np
 
 import torch
+from PIL import Image
 from transformers import AutoImageProcessor, AutoModel, CLIPProcessor, CLIPModel
 
 
@@ -21,6 +22,16 @@ def check_args(**kwargs):
 
 
 def setup(transformation, output_dir, **kwargs):
+    """
+    Prepare the output file and directory for the transformation and define the transformation context.
+
+    Returns:
+        tuple[str, list[str], dict, str]: A tuple containing:
+            - Path to the CSV file where transformation metadata will be saved.
+            - Column names for the transformation metadata CSV file.
+            - Transformation parameters used during processing.
+            - Directory where transformed images will be saved.
+    """
     print(f"\n{'='*60}")
     print("Setting up embedding context...")
     embedding_method = kwargs.get("embedding_method", "clip")
@@ -36,6 +47,7 @@ def setup(transformation, output_dir, **kwargs):
         embedding_method
     )
     os.makedirs(transformation_dir, exist_ok=True)
+    print(f"Transformations will be saved to: {transformation_dir}")
 
     if embedding_method == "clip":
         embedding_model, processor, device = load_clip_model(model_name)
@@ -49,7 +61,6 @@ def setup(transformation, output_dir, **kwargs):
         "device": device,
         "embedding_normalization": normalization,
     }
-    print(f"Transformations will be saved to: {transformation_dir}")
     return transformation_file, ["Dir", "ImageID", "embedding_Dir", "embedding_ImageID"], context, transformation_dir
 
 
@@ -57,18 +68,25 @@ def format_output(result, row, transformation_dir):
     """
     Format the transformation result as one CSV row.
     """
+    image_path = row.Dir
     filename = f"{row.ImageID}.npy"
-    embedding_path = os.path.join(transformation_dir,filename)
-    np.save(embedding_path, result)
+    embedding_path = os.path.join(transformation_dir,image_path)
+    os.makedirs(embedding_path, exist_ok=True)
+    embedding_file = os.path.join(embedding_path,filename)
+    np.save(embedding_file, result)
     return {
         "Dir": row.Dir,
         "ImageID": row.ImageID,
-        "embedding_Dir": transformation_dir, 
+        "embedding_Dir": embedding_path, 
         "embedding_ImageID" : filename
     }
 
 
-def transform(image, context):
+def transform(image_file, context):
+    """
+    Apply the selected embedding method to an image.
+    """
+    image = Image.open(image_file)
     if context["embedding_method"] == "clip":
         return clip_embedding(
             image,
@@ -121,7 +139,7 @@ def clip_embedding(
     Generate a CLIP image embedding for an image.
 
     Args:
-        image_file (str): Path to the input image.
+        image (PIL.Image): PIL image to embed.
         image_processor: Pre-trained CLIP image processor used to prepare the image for the model.
         clip_model: Pre-trained CLIP model used to generate the image embedding.
         normalization (bool): If True the image embedding is normalized 
@@ -171,7 +189,7 @@ def dino_embedding(
     Generate a DINO image embedding for an image.
 
     Args:
-        image_file (str): Path to the input image.
+        image (PIL.Image): PIL image to embed.
         image_processor: Pre-trained DINO image processor used to prepare the image for the model.
         dino_model: Pre-trained DINO model used to generate the image embedding.
         normalization (bool): If True the image embedding is normalized 

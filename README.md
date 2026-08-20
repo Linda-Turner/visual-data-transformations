@@ -21,14 +21,19 @@ python main.py -i <input_file> -t <transformation>
 
 Additional optional arguments can be provided depending on the selected transformation. 
 These transformation-specific arguments allow you to configure the method and its parameters.
+If no arguments are provided the default will be used. 
 
 For example:
 
-python main.py -i <input_file> -t embedding --embedding_method clip --embedding_model openai/clip-vit-base-patch32
-
-python main.py -i <input_file> -t hashing --hashing_method phash
+python main.py -i <input_file> -t description --description_method descriptive --description_model google/gemma-4-E2B-it
 
 python main.py -i <input_file> -t face_obstruction --obstruction_method blur --obstruction_sigma 30
+
+python main.py -i <input_file> -t regeneration --regeneration_descriptions <description_file> --regeneration_model sd2-community/stable-diffusion-2-1
+
+python main.py -i <input_file> -t embedding --embedding_method clip --embedding_model openai/clip-vit-base-patch32 --embedding_normalization True
+
+python main.py -i <input_file> -t hashing --hashing_method phash
 
 
 # Available transformations
@@ -42,7 +47,7 @@ Arguments:
         Available option include:
         'descriptive' to get the descriptive description of the image
         'narrative' to get the narrative of the image.
-    description_model: The LLaVa model used to generate the description. (Defaults to 'llava-hf/llava-1.5-7b-hf')
+    description_model: The Gemma model used to generate the description. (Defaults to 'google/gemma-4-E2B-it')
 
 
 2. Face Obstruction
@@ -52,19 +57,18 @@ Create the same image with detected faces obscured.
 Arguments:
     obstruction_method: How the detected faces should be obscured. (Defaults to 'blur')
         Available options include: 'blur', 'pixelate', 'block'
-    obstruction_n_neighbors: Controls the face detection sensitivity.
-    obstruction_scale_factor: Controls the scale factor used by the face detector.
-    obstruction_face_h: Controls the height of the area around the detected face that is obscured.
-    obstruction_face_w: Controls the width of the area around the detected face that is obscured.
-    obstruction_face_angle: Controls the rotation angle of the obstruction area.
-    obstruction_sigma: Controls the strength of the blur when using obstruction_method="blur".
-    obstruction_pixel_size: Controls the pixel size when using obstruction_method="pixelate".
+    obstruction_sigma: Controls the strength of the blur when using obstruction_method="blur". (Defaults to 30)
+    obstruction_pixel_size: Controls the pixel size when using obstruction_method="pixelate". (Defaults to 10)
 
 
 3. Redraw
 Create a new image that preserves the general content of the original image without directly reproducing the original image.
 
-NOT IMPLEMENTED.
+Arguments:
+    regeneration_descriptions: CSV-File containing textual descriptions of the images, containing columns 'Dir', 'ImageID' and 'description'.
+        The descriptions given will be shortened to comply with the Stable Diffuser token limit.
+        If no file is given, descriptions will be generated.
+    regeneration_model: The Stable Diffusion model used to regenerate the images. (Defaults to 'sd2-community/stable-diffusion-2-1')
 
 
 4. Embedding
@@ -74,7 +78,7 @@ Convert the image into a numerical representation using a pretrained vision mode
 Arguments:
     embedding_method: The embedding method to use. (Defaults to 'clip')
         Available options include: 'clip', 'dino'
-    embedding_model: The specific pretrained model to use. (Defaults to 'openai/clip-vit-base-patch32')
+    embedding_model: The specific pretrained model to use. (Defaults to 'openai/clip-vit-base-patch32'; example for dino 'facebook/dinov2-base')
     embedding_normalization: Whether the resulting embedding should be normalized. (Defaults to True)
 
 

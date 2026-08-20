@@ -3,30 +3,16 @@ import numpy as np
 
 import cv2
 from PIL import Image
+from retinaface import RetinaFace
 
 
 def check_args(**kwargs):
     obstruction_method = kwargs.get("obstruction_obstruction_method", "blur")
-    n_neighbors = kwargs.get("obstruction_n_neighbors", 4)
-    scale_factor = kwargs.get("obstruction_scale_factor", 1.3)
     sigma = kwargs.get("obstruction_sigma", 30)
     pixel_size = kwargs.get("obstruction_pixel_size", 10)
-    face_h = kwargs.get("obstruction_face_h", 0.48)
-    face_w = kwargs.get("obstruction_face_w", 0.43)
-    face_angle = kwargs.get("obstruction_face_angle", 0)
     errors = []
     if obstruction_method not in {"blur", "pixelate", "block"}:
         errors.append(f"obstruction_obstruction_method must be 'blur', 'pixelate', or 'block', got '{obstruction_method}'")
-    if not isinstance(n_neighbors, int) or n_neighbors < 1:
-        errors.append("obstruction_n_neighbors must be a positive integer")
-    if not isinstance(scale_factor, (int, float)) or scale_factor <= 1:
-        errors.append("obstruction_scale_factor must be a number greater than 1")
-    if not isinstance(face_h, (int, float)) or not 0 < face_h <= 1:
-        errors.append("obstruction_face_h must be between 0 and 1")
-    if not isinstance(face_w, (int, float)) or not 0 < face_w <= 1:
-        errors.append("obstruction_face_w must be between 0 and 1")
-    if not isinstance(face_angle, (int, float)):
-        errors.append( "obstruction_face_angle must be a number")
     if obstruction_method == "blur":
         if not isinstance(sigma, (int, float)) or sigma <= 0:
             errors.append("obstruction_sigma must be a positive number")
@@ -39,16 +25,21 @@ def check_args(**kwargs):
 
 
 def setup(transformation, output_dir, **kwargs):
+    """
+    Prepare the output file and directory for the transformation and define the transformation context.
+
+    Returns:
+        tuple[str, list[str], dict, str]: A tuple containing:
+            - Path to the CSV file where transformation metadata will be saved.
+            - Column names for the transformation metadata CSV file.
+            - Transformation parameters used during processing.
+            - Directory where transformed images will be saved.
+    """
     print(f"\n{'='*60}")
     print("Setting up face obstruction context...")
     obstruction_method = kwargs.get("obstruction_method", "blur")
-    obstruction_n_neighbors = kwargs.get("obstruction_n_neighbors", 4)
-    obstruction_scale_factor = kwargs.get("obstruction_scale_factor", 1.3)
     obstruction_sigma = kwargs.get("obstruction_sigma", 30)
     obstruction_pixel_size = kwargs.get("obstruction_pixel_size", 10)
-    obstruction_face_h = kwargs.get("obstruction_face_h", 0.48)
-    obstruction_face_w = kwargs.get("obstruction_face_w", 0.43)
-    obstruction_face_angle = kwargs.get("obstruction_face_angle", 0)
 
     transformation_file = os.path.join(output_dir,f"{transformation}_{obstruction_method}.csv")
     print(f"Metadata on transformations will be saved at: {transformation_file}")
@@ -62,16 +53,11 @@ def setup(transformation, output_dir, **kwargs):
 
     context = {
         "obstruction_method": obstruction_method,
-        "obstruction_n_neighbors": obstruction_n_neighbors,
-        "obstruction_scale_factor": obstruction_scale_factor,
         "obstruction_sigma": obstruction_sigma,
         "obstruction_pixel_size": obstruction_pixel_size,
-        "obstruction_face_h": obstruction_face_h,
-        "obstruction_face_w": obstruction_face_w,
-        "obstruction_face_angle": obstruction_face_angle,
     }
     print(f"Transformations will be saved to: {transformation_dir}")
-    return transformation_file, ["Dir", "ImageID", "obstruction_Dir","obstruction_imageID"], context, transformation_dir
+    return transformation_file, ["Dir", "ImageID", "obstruction_Dir","obstruction_imageID", "#detected_faces"], context, transformation_dir
      
 
 
@@ -79,115 +65,76 @@ def format_output(result, row, transformation_dir):
     """
     Format the transformation result as one CSV row.
     """
+    image, number_detected_faces = result
+    image_path = row.Dir
     filename = f"{row.ImageID}"
-    image_path = os.path.join(transformation_dir, filename)
-    result.save(image_path)
+    obstruction_path = os.path.join(transformation_dir,image_path)
+    os.makedirs(obstruction_path, exist_ok=True)
+    obstruction_file = os.path.join(obstruction_path,filename)
+    image.save(obstruction_file)
     return {
         "Dir": row.Dir,
         "ImageID": row.ImageID,
-        "obstruction_Dir": transformation_dir,
-        "obstruction_imageID": filename
+        "obstruction_Dir": obstruction_path,
+        "obstruction_imageID": image,
+        "#detected_faces" : number_detected_faces,
     }
 
 
-def transform(image, context):
-    return obstruct_faces(image, context['obstruction_method'], 
-                   context['obstruction_n_neighbors'],
-                   context['obstruction_scale_factor'],
+def transform(image_file, context):
+    """
+    Apply the selected face_obstruction method to an image.
+    """
+    image, number_detected_faces = obstruct_faces(image_file, context['obstruction_method'], 
                    context['obstruction_sigma'],
-                   context['obstruction_pixel_size'],
-                   context['obstruction_face_h'],
-                   context['obstruction_face_w'],
-                   context['obstruction_face_angle'])
+                   context['obstruction_pixel_size'],)
+    return (image, number_detected_faces)
 
 
-def obstruct_faces(image, obstruction_type, n_neighbors, scale_factor, sigma, pixel_size, face_h, face_w, angle):
+def obstruct_faces(image_file, obstruction_type, sigma, pixel_size):
     """
     Detect and obstruct faces in an image.
 
     Args:
-        image (str): Path to the input image.
-        obstruction_type (str): obstruction_method used to obstruct detected faces.
-            Supported obstruction_methods:
+        image_file (str): path to the image file.
+        obstruction_type (str): Method used to obstruct detected faces.
+            Supported methods:
                 "blur"     : Gaussian blur
                 "pixelate" : Pixelation
                 "block"    : Black out the face
-        n_neighbors (int, optional): Defaults to 4.
-        scale_factor (int, optional): Defaults to 1.3
         sigma (float, optional): Standard deviation of the Gaussian kernel. Larger values
             produce stronger blur. Defaults to 30.
         pixel_size (int, optional): Width and height of the reduced representation used during pixelation.
             Smaller values produce stronger pixelation. Defaults to 10.
-        face_h (float, optional): Vertical radius of the face mask as a proportion of the bounding-box height.
-            Larger values produce larger box borders. Defaults to 0.48.
-        face_w (float, optional): Horizontal radius of the face mask as a proportion of the bounding-box width.
-            Larger values produce larger box borders. Defaults to 0.42.
-        angle (float, optional): Rotation angle of the elliptical mask in degrees. Defaults to 0.
 
     Returns:
-        numpy.ndarray: The processed image in RGB format.
+        Tuple[PIL.Image, int:] Tuple of the processed image and the number of detected faces.
     """
-    image = np.array(image.convert("RGB"))
+    image = cv2.imread(image_file)
 
-    face_detect = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
-    gray = cv2.cvtColor(image,cv2.COLOR_RGB2GRAY)
-
-    face_data = face_detect.detectMultiScale(gray, scaleFactor=scale_factor, minNeighbors=n_neighbors)
-
-    # print(f"Detected {len(face_data)} face(s)")
+    faces = RetinaFace.detect_faces(image_file)
 
     if obstruction_type == "blur":
-        image = blur(face_data,image,sigma=sigma, face_h=face_h, face_w=face_w, angle=angle)
+        image = blur(faces,image,sigma=sigma)
     elif obstruction_type == "pixelate":
-        image = pixelate(face_data,image,pixel_size=pixel_size, face_h=face_h, face_w=face_w, angle=angle)
+        image = pixelate(faces,image,pixel_size=pixel_size)
     elif obstruction_type == "block":
-        image = block_out(face_data,image, face_h=face_h, face_w=face_w, angle=angle)
-    return Image.fromarray(image)
+        image = block_out(faces,image)
+    image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    return image, len(faces)
 
 
-def face_mask(h, w, face_h, face_w, angle):
+def blur(faces, image, sigma):
     """
-    Create an elliptical mask approximating the face region.
+    A Gaussian blur is applied to the detected mask for each detected face. 
 
     Args:
-        h (int): Height of the detected face bounding box in pixels.
-        w (int): Width of the detected face bounding box in pixels.
-        face_h (float, optional): Vertical radius of the face mask as a proportion of the bounding-box height.
-            Larger values produce larger box borders. Defaults to 0.48.
-        face_w (float, optional): Horizontal radius of the face mask as a proportion of the bounding-box width.
-            Larger values produce larger box borders. Defaults to 0.42.
-        angle (float, optional): Rotation angle of the elliptical mask in degrees. Defaults to 0.
-
-    Returns:
-        numpy.ndarray: A binary uint8 mask of shape (h, w). Pixels inside the
-            elliptical face region have value 255; pixels outside
-            have value 0.
-    """
-    mask = np.zeros((h, w), dtype=np.uint8)
-    center = (w // 2, h // 2)
-    axes = (int(w * face_w), int(h * face_h))
-    cv2.ellipse(mask,center,axes,angle=angle,startAngle=0,endAngle=360,color=255,thickness=-1)
-    return mask
-
-
-def blur(face_detection, image, sigma, face_h, face_w, angle):
-    """
-    A Gaussian blur is applied to an elliptical mask for each detected face. 
-
-    Args:
-        face_detection (array-like): Face detections returned by the face detector.
-            Each detection must contain four values: (x, y, w, h)
-            where x and y are the top-left coordinates of the
-            bounding box, and w and h are its width and height.
+        faces (dict): Face detections returned by the face detector. Containing at least:
+            facial_area (list[int]): Face bounding box in the format [x1, y1, x2, y2].
+            landmarks (dict): RetinaFace facial landmarks containing 'right_eye' and 'left_eye' coordinates.
         image (numpy.ndarray): Image containing the detected faces.
         sigma (float, optional): Standard deviation of the Gaussian kernel. Larger values
             produce stronger blur. Defaults to 30.
-        face_h (float, optional): Vertical radius of the face mask as a proportion of the bounding-box height.
-            Larger values produce larger box borders. Defaults to 0.48.
-        face_w (float, optional): Horizontal radius of the face mask as a proportion of the bounding-box width.
-            Larger values produce larger box borders. Defaults to 0.42.
-        angle (float, optional): Rotation angle of the elliptical mask in degrees. Defaults to 0.
 
     Returns:
         numpy.ndarray: The input image with the detected face regions blurred.
@@ -195,69 +142,102 @@ def blur(face_detection, image, sigma, face_h, face_w, angle):
     Notes:
         The kernel size is automatically determined by OpenCV because (0, 0) is provided as the kernel size.
     """
-    for (x, y, w, h) in face_detection:
-        roi = image[y:y+h, x:x+w]
+    for face in range(len(faces)):
+        identity = faces[f"face_{face + 1}"]
+        facial_area = identity["facial_area"]
+        x1, y1, x2, y2 = facial_area
+        w, h = x2 - x1, y2 - y1
+        roi = image[y1:y2, x1:x2]
         blurred_roi = cv2.GaussianBlur(roi,(0, 0),sigma)
-        mask = face_mask(h, w, face_h=face_h, face_w=face_w, angle=angle)
+        mask = np.ones((h, w), dtype=np.uint8) * 255
         roi[mask == 255] = blurred_roi[mask == 255]
-        image[y:y+h, x:x+w] = roi
+        image[y1:y2, x1:x2] = roi
     return image
 
 
-def pixelate(face_data, image, pixel_size, face_h, face_w, angle):
+def pixelate(faces, image, pixel_size):
     """
-    Pixelate is applied to an elliptical mask for each detected face. 
+    Pixelate is applied to the detected mask for each detected face. 
 
     Args:
-        face_detection (array-like): Face detections returned by the face detector.
-            Each detection must contain four values: (x, y, w, h)
-            where x and y are the top-left coordinates of the
-            bounding box, and w and h are its width and height.
+        faces (dict): Face detections returned by the face detector. Containing at least:
+            facial_area (list[int]): Face bounding box in the format [x1, y1, x2, y2].
+            landmarks (dict): RetinaFace facial landmarks containing 'right_eye' and 'left_eye' coordinates.
         image (numpy.ndarray): Image containing the detected faces.
         pixel_size (int, optional): Width and height of the reduced representation used during pixelation.
             Smaller values produce stronger pixelation. Defaults to 10.
-        face_h (float, optional): Vertical radius of the face mask as a proportion of the bounding-box height.
-            Larger values produce larger box borders. Defaults to 0.48.
-        face_w (float, optional): Horizontal radius of the face mask as a proportion of the bounding-box width.
-            Larger values produce larger box borders. Defaults to 0.42.
-        angle (float, optional): Rotation angle of the elliptical mask in degrees. Defaults to 0.
 
     Returns:
         numpy.ndarray: The input image with the detected face regions pixelated.
     """
-    for (x, y, w, h) in face_data:
-        roi = image[y:y+h, x:x+w]
+    for face in range(len(faces)):
+        identity = faces[f"face_{face + 1}"]
+        facial_area = identity["facial_area"]
+        x1, y1, x2, y2 = facial_area
+        w, h = x2 - x1, y2 - y1
+        roi = image[y1:y2, x1:x2]
         small = cv2.resize(roi,(pixel_size, pixel_size),interpolation=cv2.INTER_LINEAR)
         pixelated_roi = cv2.resize(small,(w, h),interpolation=cv2.INTER_NEAREST)
-        mask = face_mask(h, w, face_h=face_h, face_w=face_w, angle=angle)
+        mask = np.ones((h, w), dtype=np.uint8) * 255
         roi[mask == 255] = pixelated_roi[mask == 255]
-        image[y:y+h, x:x+w] = roi
+        image[y1:y2, x1:x2] = roi
     return image
 
 
-def block_out(face_data, image, face_h, face_w, angle):
+def block_out(faces, image):
     """
-    Black out is applied to an elliptical mask for each detected face. 
+    Black out is applied to the detected area mask for each detected face. 
 
     Args:
-        face_detection (array-like): Face detections returned by the face detector.
-            Each detection must contain four values: (x, y, w, h)
-            where x and y are the top-left coordinates of the
-            bounding box, and w and h are its width and height.
+        faces (dict): Face detections returned by the face detector. Containing at least:
+            facial_area (list[int]): Face bounding box in the format [x1, y1, x2, y2].
+            landmarks (dict): RetinaFace facial landmarks containing 'right_eye' and 'left_eye' coordinates.
         image (numpy.ndarray): Image containing the detected faces.
-        face_h (float, optional): Vertical radius of the face mask as a proportion of the bounding-box height.
-            Larger values produce larger box borders. Defaults to 0.48.
-        face_w (float, optional): Horizontal radius of the face mask as a proportion of the bounding-box width.
-            Larger values produce larger box borders. Defaults to 0.42.
-        angle (float, optional): Rotation angle of the elliptical mask in degrees. Defaults to 0.
 
     Returns:
         numpy.ndarray: The input image with the detected face regions replaced by black pixels.
     """
-    for (x, y, w, h) in face_data:
-        roi = image[y:y+h, x:x+w]
-        mask = face_mask(h, w, face_h=face_h, face_w=face_w, angle=angle)
+    for face in range(len(faces)):
+        identity = faces[f"face_{face + 1}"]
+        facial_area = identity["facial_area"]
+        x1, y1, x2, y2 = facial_area
+        w, h = x2 - x1, y2 - y1
+        roi = image[y1:y2, x1:x2]
+        mask = np.ones((h, w), dtype=np.uint8) * 255
         roi[mask == 255] = 0
-        image[y:y+h, x:x+w] = roi
+        image[y1:y2, x1:x2] = roi
     return image
 
+
+# def face_mask(facial_area,landmarks,face_h=FACE_H,face_w=FACE_W):
+#     """
+#     Create an elliptical mask approximating a detected face, rotated
+#     according to the angle of the eyes.
+
+#     Args:
+#         facial_area (list[int]): Face bounding box in the format
+#             [x1, y1, x2, y2].
+#         landmarks (dict): RetinaFace facial landmarks containing
+#             'right_eye' and 'left_eye' coordinates.
+#         face_h (float, optional): Vertical radius of the ellipse as a
+#             proportion of the bounding-box height.
+#         face_w (float, optional): Horizontal radius of the ellipse as a
+#             proportion of the bounding-box width.
+
+#     Returns:
+#         numpy.ndarray: Binary uint8 mask of the detected face region.
+#     """
+#     x1, y1, x2, y2 = facial_area
+#     w = x2 - x1
+#     h = y2 - y1
+#     mask = np.zeros((h, w), dtype=np.uint8)
+#     center = (w // 2, h // 2)
+#     axes = (int(w * face_w),int(h * face_h))
+#     right_eye = landmarks["right_eye"]
+#     left_eye = landmarks["left_eye"]
+#     dx = left_eye[0] - right_eye[0]
+#     dy = left_eye[1] - right_eye[1]
+#     angle = np.degrees(np.arctan2(dy, dx))
+#     cv2.rectangle(mask, (x2, y2), (x1, y1), (255, 255, 255), 1)
+#     # cv2.ellipse(mask,center,axes,angle,0,360,255,-1)
+#     return mask
