@@ -17,7 +17,7 @@ python -m pip install -r requirements.txt
 
 **4. Run code**
 
-python main.py -i <input_file> -t <transformation>
+python src/main.py -i <input_file> -t <transformation>
 
 Additional optional arguments can be provided depending on the selected transformation. 
 These transformation-specific arguments allow you to configure the method and its parameters.
@@ -25,15 +25,15 @@ If no arguments are provided the default will be used.
 
 For example:
 
-python main.py -i <input_file> -t description --description_method descriptive --description_model google/gemma-4-E2B-it
+python src/main.py -i <input_file> -t description --description_method descriptive --description_model google/gemma-4-E2B-it
 
-python main.py -i <input_file> -t face_obstruction --obstruction_method blur --obstruction_sigma 30
+python src/main.py -i <input_file> -t face_obstruction --obstruction_method blur --obstruction_sigma 30
 
-python main.py -i <input_file> -t regeneration --regeneration_descriptions <description_file> --regeneration_model sd2-community/stable-diffusion-2-1
+python src/main.py -i <input_file> -t regeneration --regeneration_descriptions <description_file> --regeneration_model sd2-community/stable-diffusion-2-1
 
-python main.py -i <input_file> -t embedding --embedding_method clip --embedding_model openai/clip-vit-base-patch32 --embedding_normalization True
+python src/main.py -i <input_file> -t embedding --embedding_method clip --embedding_model openai/clip-vit-base-patch32 --embedding_normalization True
 
-python main.py -i <input_file> -t hashing --hashing_method phash
+python src/main.py -i <input_file> -t hashing --hashing_method phash
 
 
 # Available transformations
