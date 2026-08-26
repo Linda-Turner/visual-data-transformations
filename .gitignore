@@ -3,3 +3,6 @@ outputs/*
 __pycache__/
 .ipynb_checkpoints/
 data/*
+notebooks/*
+src/test_all.py
+src/orchestrator.py
