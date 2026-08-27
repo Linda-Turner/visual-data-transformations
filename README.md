@@ -3,13 +3,13 @@
 Transformations of visual data that preserve different types of information from the original image.
 
 ### Usage
-**1. Create the conda environment with Python 3.12**
+**1. Create virtual environment with Python 3.12**
 
-conda create -n vistrans_env python=3.12 -y
+python3.12 -m venv .venv
 
 **2. Activate it**
 
-conda activate vistrans_env
+source .venv/bin/activate
 
 **3. Install all packages with pip in the same env**
 
