@@ -119,7 +119,7 @@ def describe_image(image_path, processor, model, description_method, device):
         str: A response from the LLM.
     """
     if description_method == 'descriptive':
-        PROMPT = "Describe what is shown in the image in a few sentences. Try to include as much detail as possible."
+        PROMPT = "Describe the image in enough detail that another model could reconstruct the image from the description. First, describe the overall scene, including the main subjects and their spatial relationships. Also include relevant background elements. Then describe each of the elements in the overall scene in as much specific visual detail as possible. Visual detail includes perspective, lighting, shapes, colors, textures, pose, clothing, facial expressions, and any visible text or symbols. Describe only what is visually present in the image."
     elif description_method == 'narrative':
         PROMPT = "Describe what this image is trying to communicate. Discuss its purpose, meaning and narrative."
 
@@ -154,10 +154,10 @@ def describe_image(image_path, processor, model, description_method, device):
 
 def shorten_text(text, processor, model, device):
     """
-    Shorten text given by the user.
+    Summarize text given by the user.
 
     Args:
-        text (str): Text to shorten.
+        text (str): Text to summarize.
         processor: Gemma processor.
         model: Gemma model.
         device: Model device.
@@ -168,7 +168,7 @@ def shorten_text(text, processor, model, device):
     messages = [
         {
             "role": "user", "content": [
-                {"type": "text", "text": f"Shorten the following description to a few sentences, in maximum 75 tokens. The description is: {text}"}
+                {"type": "text", "text": f"Summarize the following description to a few sentences of maximum 75 tokens. Make sure to keep enough visual information in the summary to be a good representation of the original. The description is: {text}"}
             ]
         }
     ]

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForMultimodalLM
-from diffusers import StableDiffusionPipeline
+from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 import filetype
 import base64
 
@@ -39,37 +39,42 @@ def setup(transformation, output_dir, **kwargs):
     """
     print(f"\n{'='*60}")
     print("Setting up description generation context...")
+    regeneration_method = kwargs.get("regeneration_method","description_based")
     model_name = kwargs.get("regeneration_model","sd2-community/stable-diffusion-2-1")
-    regeneration_descriptions = kwargs.get("regeneration_descriptions")
+    regeneration_descriptions = kwargs.get("regeneration_descriptions", None)
 
     transformation_dir = os.path.join(
         output_dir,
-        "regeneration")
+        f"{transformation}_{regeneration_method}")
     os.makedirs(transformation_dir, exist_ok=True)
     print(f"Transformations will be saved to: {transformation_dir}")
 
-    pipeline = load_generation_model(model_name)
+    pipeline = load_generation_model(model_name, regeneration_method)
 
-    if regeneration_descriptions:
+    if regeneration_method == "description_based":
         gemma_model, gemma_processor, gemma_device = (image_description.load_gemma_model("google/gemma-4-E2B-it"))
-        descriptions = pd.read_csv(regeneration_descriptions)
-        transformation_file = os.path.join(output_dir,f"{transformation}_from_descriptions.csv")
-    else:
-        gemma_model, gemma_processor, gemma_device = (image_description.load_gemma_model("google/gemma-4-E2B-it"))
+        if regeneration_descriptions:
+            descriptions = pd.read_csv(regeneration_descriptions)
+            transformation_file = os.path.join(output_dir,f"{transformation}_from_descriptions.csv")
+        else:
+            descriptions = None
+            transformation_file = os.path.join(output_dir,f"{transformation}_from_descriptions.csv")
+    elif regeneration_method == "image_based":
+        gemma_model, gemma_processor, gemma_device = None, None, None
         descriptions = None
-        transformation_file = os.path.join(output_dir,f"{transformation}.csv")
+        transformation_file = os.path.join(output_dir,f"{transformation}_from_images.csv")
         
     print(f"Metadata on transformations will be saved at: {transformation_file}")
 
     context = {
         "pipeline": pipeline,
+        "regeneration_method": regeneration_method,
         "regeneration_descriptions": descriptions,
         "gemma_model" : gemma_model,
         "gemma_processor" : gemma_processor,
         "gemma_device" : gemma_device,
     }
     return transformation_file, ["Dir", "ImageID", "regeneration_Dir", "regeneration_ImageID", 'description'], context, transformation_dir
-
 
 def format_output(result, row, transformation_dir):
     """
@@ -86,23 +91,46 @@ def format_output(result, row, transformation_dir):
     if image is not None:
         image.save(regeneration_file)
     output_row = {
-        "Dir": row.Dir,
-        "ImageID": row.ImageID,
+        "Dir": image_path,
+        "ImageID": filename,
         "regeneration_Dir":regeneration_path,
         "regeneration_ImageID": filename,
         'description' : description
     }
     return output_row
+# def format_output(result, row, transformation_dir):
+#     """
+#     Format the transformation result as one CSV row.
+#     """
+#     image, description = result
+#     image_path = row.Dir
+#     filename = row.ImageID
+#     relative_dir = os.path.relpath(image_path, start="Annotations/data")
+#     regeneration_path = os.path.join(transformation_dir,relative_dir)
+#     os.makedirs(regeneration_path, exist_ok=True)
+#     regeneration_file = os.path.join(regeneration_path,filename)
+#     if description is None:
+#         description = "No description available."
+#     if image is not None:
+#         image.save(regeneration_file)
+#     output_row = {
+#         "Dir": image_path,
+#         "ImageID": filename,
+#         "regeneration_Dir":transformation_dir,
+#         "regeneration_ImageID": filename,
+#         'description' : description
+#     }
+#     return output_row
 
 
 def transform(image_file, context):
     """
     Apply the selected description methods to an image.
     """
-    # image = Image.open(image_file)
     return regenerate_images(
         image_file,
         context["pipeline"],
+        context["regeneration_method"],
         context["regeneration_descriptions"], 
         context['gemma_model'],
         context['gemma_processor'],
@@ -114,7 +142,7 @@ def get_device():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def load_generation_model(generation_model):
+def load_generation_model(generation_model, regeneration_method):
     """
     Load a pre-trained stable diffusion pipeline.
 
@@ -126,18 +154,22 @@ def load_generation_model(generation_model):
     """
     device = get_device()
     dtype = torch.float16 if device == "cuda" else torch.float32
-    pipeline = StableDiffusionPipeline.from_pretrained(generation_model, torch_dtype=dtype)
+    if regeneration_method == 'description_based':
+        pipeline = StableDiffusionPipeline.from_pretrained(generation_model, torch_dtype=dtype)
+    else:
+        pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(generation_model, torch_dtype=dtype)
     pipeline = pipeline.to(device)
     return pipeline
 
 
-def regenerate_images(image_path, pipeline, regeneration_descriptions,gemma_model, gemma_processor, gemma_device):
+def regenerate_images(image_path, pipeline, regeneration_method, regeneration_descriptions, gemma_model, gemma_processor, gemma_device):
     """
     redraw images based on textual description of the original
 
     Args:
         image_path (str): Path to the original image.
         pipeline: Stable Diffusion pipeline used to generate the new image.
+        regeneration_method (str): Method to use for regeneration ('description_based' or 'image_based').
         regeneration_descriptions (pd.DataFrame | None): Optional DataFrame
             containing pre-generated descriptions.
         gemma_model: Gemma model used to generate a description when one is
@@ -148,15 +180,21 @@ def regenerate_images(image_path, pipeline, regeneration_descriptions,gemma_mode
     Return: 
         Tuple[image, str]: the redrawn image and the prompt used to redraw the original image. 
     """
-    prompt = get_prompt(image_path, regeneration_descriptions,gemma_model, gemma_processor, gemma_device)
-    if prompt:
-        image = pipeline(prompt=prompt).images[0]
-        return (image, prompt)
+    if regeneration_method == "description_based":
+        prompt = get_response(image_path, regeneration_descriptions,gemma_model, gemma_processor, gemma_device)
+        if prompt:
+            generated_image = pipeline(prompt=prompt).images[0]
+            return (generated_image, prompt)
+    elif regeneration_method == "image_based":
+        image = Image.open(image_path)
+        prompt = "Produce a version of the image that can be shown in a research paper (that is, that is similar to the original but does not break copyright law and doesn't allow to identify the identity of people in the picture if they are not public figures)."
+        if prompt:
+            generated_image = pipeline(prompt=prompt, image=image).images[0]
+            return (generated_image, "")
     return (None, None)
 
 
-
-def get_prompt(image_path, regeneration_descriptions,gemma_model, gemma_processor, gemma_device):
+def get_response(image_path, regeneration_descriptions,gemma_model, gemma_processor, gemma_device):
     """
         If no description is available, generate descriptive prompt for the image. Otherwise return the ready prompt.
     """
@@ -170,10 +208,10 @@ def get_prompt(image_path, regeneration_descriptions,gemma_model, gemma_processo
             return shortend_prompt
         else:
             return None
-    return generate_prompt(image_path,gemma_model,gemma_processor,gemma_device)
+    return generate_response(image_path,gemma_model,gemma_processor,gemma_device)
 
 
-def generate_prompt(image_path,gemma_model, gemma_processor, gemma_device):
+def generate_response(image_path,gemma_model, gemma_processor, gemma_device):
     """
         Generate descriptive prompt for the image.
     """

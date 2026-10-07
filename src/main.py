@@ -11,6 +11,7 @@ import transformations.embedding as image_embedding
 import transformations.face_obstruction as face_obstruction  
 import transformations.description as image_description  
 import transformations.regeneration as image_regeneration  
+import transformations.object_recognition as object_recognition 
 
 
 TRANSFORMATIONS = {
@@ -19,6 +20,7 @@ TRANSFORMATIONS = {
     "face_obstruction": face_obstruction,
     "description": image_description,
     "regeneration": image_regeneration,
+    "object_recognition": object_recognition
 }
 
 
@@ -116,7 +118,7 @@ def parse_args():
     )
     parser.add_argument(
         "-t", "--transformation",
-        choices=["embedding","description","hashing","face_obstruction","regeneration"],
+        choices=["embedding","description","hashing","face_obstruction","regeneration","object_recognition"],
         help="Transformation to apply.",
         required=True,
     )
@@ -126,7 +128,7 @@ def parse_args():
     )
     parser.add_argument(
         "-o", "--output_dir",
-        default="outputs"
+        default="annotation"
     )
 
     # Face obstruction arguments
@@ -166,8 +168,12 @@ def parse_args():
     parser.add_argument(
         "--embedding_method",
         default="clip",
-        choices=["clip", "dino"],
+        choices=["clip", "dino", "vgg", 'bert'],
         help="Image embedding method to use."
+    )
+    parser.add_argument(
+        "--embedding_descriptions",
+        help="Image descriptions to embed using bert."
     )
     # Description arguments
     parser.add_argument(
@@ -181,6 +187,12 @@ def parse_args():
         help="Image description method to use."
     )
     #Regeneration
+    parser.add_argument(
+        "--regeneration_method",
+        default="description_based",
+        choices=["description_based", "image_based"],
+        help="Regeneration method to use."
+    )
     parser.add_argument(
         "--regeneration_descriptions",
         help="Image descriptions to base the regeneration on."

@@ -6,3 +6,9 @@ data/*
 notebooks/*
 src/test_all.py
 src/orchestrator.py
+Annotations/*
+Annotations.zip
+data_merge.ipynb
+get_annotations_data.py
+get_annotations_transformations.py
+sample_annotations_data.py

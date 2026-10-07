@@ -7,12 +7,12 @@ from retinaface import RetinaFace
 
 
 def check_args(**kwargs):
-    obstruction_method = kwargs.get("obstruction_obstruction_method", "blur")
+    obstruction_method = kwargs.get("obstruction_method", "blur")
     sigma = kwargs.get("obstruction_sigma", 30)
     pixel_size = kwargs.get("obstruction_pixel_size", 10)
     errors = []
     if obstruction_method not in {"blur", "pixelate", "block"}:
-        errors.append(f"obstruction_obstruction_method must be 'blur', 'pixelate', or 'block', got '{obstruction_method}'")
+        errors.append(f"obstruction_method must be 'blur', 'pixelate', or 'block', got '{obstruction_method}'")
     if obstruction_method == "blur":
         if not isinstance(sigma, (int, float)) or sigma <= 0:
             errors.append("obstruction_sigma must be a positive number")
@@ -60,7 +60,6 @@ def setup(transformation, output_dir, **kwargs):
     return transformation_file, ["Dir", "ImageID", "obstruction_Dir","obstruction_imageID", "#detected_faces"], context, transformation_dir
      
 
-
 def format_output(result, row, transformation_dir):
     """
     Format the transformation result as one CSV row.
@@ -76,9 +75,28 @@ def format_output(result, row, transformation_dir):
         "Dir": row.Dir,
         "ImageID": row.ImageID,
         "obstruction_Dir": obstruction_path,
-        "obstruction_imageID": image,
+        "obstruction_imageID": filename,
         "#detected_faces" : number_detected_faces,
     }
+# def format_output(result, row, transformation_dir):
+#     """
+#     Format the transformation result as one CSV row.
+#     """
+#     image, number_detected_faces = result
+#     image_path = row.Dir
+#     filename = f"{row.ImageID}"
+#     relative_dir = os.path.relpath(image_path, start="Annotations/data")
+#     obstruction_path = os.path.join(transformation_dir,relative_dir)
+#     os.makedirs(obstruction_path, exist_ok=True)
+#     obstruction_file = os.path.join(obstruction_path,filename)
+#     image.save(obstruction_file)
+#     return {
+#         "Dir": image_path,
+#         "ImageID": filename,
+#         "obstruction_Dir": obstruction_path,
+#         "obstruction_imageID": filename,
+#         "#detected_faces" : number_detected_faces,
+#     }
 
 
 def transform(image_file, context):
@@ -208,36 +226,3 @@ def block_out(faces, image):
         image[y1:y2, x1:x2] = roi
     return image
 
-
-# def face_mask(facial_area,landmarks,face_h=FACE_H,face_w=FACE_W):
-#     """
-#     Create an elliptical mask approximating a detected face, rotated
-#     according to the angle of the eyes.
-
-#     Args:
-#         facial_area (list[int]): Face bounding box in the format
-#             [x1, y1, x2, y2].
-#         landmarks (dict): RetinaFace facial landmarks containing
-#             'right_eye' and 'left_eye' coordinates.
-#         face_h (float, optional): Vertical radius of the ellipse as a
-#             proportion of the bounding-box height.
-#         face_w (float, optional): Horizontal radius of the ellipse as a
-#             proportion of the bounding-box width.
-
-#     Returns:
-#         numpy.ndarray: Binary uint8 mask of the detected face region.
-#     """
-#     x1, y1, x2, y2 = facial_area
-#     w = x2 - x1
-#     h = y2 - y1
-#     mask = np.zeros((h, w), dtype=np.uint8)
-#     center = (w // 2, h // 2)
-#     axes = (int(w * face_w),int(h * face_h))
-#     right_eye = landmarks["right_eye"]
-#     left_eye = landmarks["left_eye"]
-#     dx = left_eye[0] - right_eye[0]
-#     dy = left_eye[1] - right_eye[1]
-#     angle = np.degrees(np.arctan2(dy, dx))
-#     cv2.rectangle(mask, (x2, y2), (x1, y1), (255, 255, 255), 1)
-#     # cv2.ellipse(mask,center,axes,angle,0,360,255,-1)
-#     return mask

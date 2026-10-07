@@ -1,9 +1,12 @@
+from email.mime import text
 import os
 import numpy as np
+import pandas as pd
 
 import torch
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModel, CLIPProcessor, CLIPModel
+from torchvision import models
+from transformers import AutoImageProcessor, AutoModel, CLIPProcessor, CLIPModel, BertTokenizer, BertModel
 
 
 def check_args(**kwargs):
@@ -11,7 +14,9 @@ def check_args(**kwargs):
     model_name = kwargs.get("embedding_model","openai/clip-vit-base-patch32")
     normalization = kwargs.get("embedding_normalization",True)
     errors = []
-    if embedding_method not in {"clip", "dino"}:errors.append(f"embedding_method must be 'clip' or 'dino', got '{embedding_method}'")
+    if embedding_method not in {"clip", "dino", "vgg", "bert"}:errors.append(f"embedding_method must be 'clip', 'dino', 'vgg' or 'bert', got '{embedding_method}'")
+    if embedding_method == 'bert' and not kwargs.get("embedding_descriptions"):
+        errors.append("embedding_descriptions must be provided when embedding_method is 'bert'")
     if not isinstance(model_name, str) or not model_name.strip():
         errors.append("embedding_model must be a non-empty string")
     if not isinstance(normalization, bool):
@@ -37,6 +42,7 @@ def setup(transformation, output_dir, **kwargs):
     embedding_method = kwargs.get("embedding_method", "clip")
     model_name = kwargs.get("embedding_model",'openai/clip-vit-base-patch32')
     normalization = kwargs.get("embedding_normalization", True)
+    embedding_descriptions = kwargs.get("embedding_descriptions", None)
 
     transformation_file = os.path.join(output_dir,f"{transformation}_{embedding_method}.csv")
     print(f"Metadata on transformations will be saved at: {transformation_file}")
@@ -48,11 +54,16 @@ def setup(transformation, output_dir, **kwargs):
     )
     os.makedirs(transformation_dir, exist_ok=True)
     print(f"Transformations will be saved to: {transformation_dir}")
-
+    descriptions = None
     if embedding_method == "clip":
         embedding_model, processor, device = load_clip_model(model_name)
     elif embedding_method == "dino":
         embedding_model, processor, device = load_dino_model(model_name)
+    elif embedding_method == "vgg":
+        embedding_model, processor, device = load_vgg_model(model_name)
+    elif embedding_method == "bert":
+        embedding_model, processor, device = load_bert_model(model_name)
+        descriptions = pd.read_csv(embedding_descriptions)
 
     context = {
         "embedding_model": embedding_model,
@@ -60,6 +71,7 @@ def setup(transformation, output_dir, **kwargs):
         "embedding_method": embedding_method,
         "device": device,
         "embedding_normalization": normalization,
+        "embedding_descriptions": descriptions,
     }
     return transformation_file, ["Dir", "ImageID", "embedding_Dir", "embedding_ImageID"], context, transformation_dir
 
@@ -80,6 +92,23 @@ def format_output(result, row, transformation_dir):
         "embedding_Dir": embedding_path, 
         "embedding_ImageID" : filename
     }
+# def format_output(result, row, transformation_dir):
+#     """
+#     Format the transformation result as one CSV row.
+#     """
+#     image_path = row.Dir
+#     filename = f"{row.ImageID}.npy"
+#     relative_dir = os.path.relpath(image_path, start="Annotations/data")
+#     embedding_path = os.path.join(transformation_dir,relative_dir)
+#     os.makedirs(embedding_path, exist_ok=True)
+#     embedding_file = os.path.join(embedding_path,filename)
+#     np.save(embedding_file, result)
+#     return {
+#         "Dir": image_path,
+#         "ImageID": row.ImageID,
+#         "embedding_Dir": embedding_path, 
+#         "embedding_ImageID" : filename
+#     }
 
 
 def transform(image_file, context):
@@ -98,6 +127,23 @@ def transform(image_file, context):
     elif context["embedding_method"] == "dino":
         return dino_embedding(
             image,
+            context["processor"],
+            context["embedding_model"],
+            context["embedding_normalization"],
+            context["device"]
+        )
+    elif context["embedding_method"] == "vgg":
+        return vgg_embedding(
+            image,
+            context["processor"],
+            context["embedding_model"],
+            context["embedding_normalization"],
+            context["device"]
+        )
+    elif context["embedding_method"] == "bert":
+        return bert_embedding(
+            image_file,
+            context["embedding_descriptions"],
             context["processor"],
             context["embedding_model"],
             context["embedding_normalization"],
@@ -203,6 +249,119 @@ def dino_embedding(
     with torch.no_grad():
         outputs = dino_model(**inputs)
     embedding = outputs.pooler_output
+    if normalization:
+        embedding = embedding / embedding.norm(p=2, dim=-1, keepdim=True)
+
+    return embedding.cpu().numpy()
+
+
+def load_vgg_model(vgg_model):
+    """
+    Load a pre-trained VGG model and processor.
+
+    Args:
+        vgg_model (str): Hugging Face model identifier for the VGG model.
+
+    Returns:
+        tuple: Loaded VGG model and processor.
+    """
+    print("Loading VGG model...")
+    device=get_device()
+    vgg = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
+    model = vgg.features
+    model.to(device)
+    model.eval()
+    processor = models.VGG16_Weights.DEFAULT.transforms()
+    return model, processor, device
+
+
+def vgg_embedding(
+    image,
+    image_processor,
+    vgg_model,
+    normalization,
+    device
+):
+    """
+    Generate a VGG image embedding for an image.
+
+    Args:
+        image (PIL.Image): PIL image to embed.
+        image_processor: Pre-trained VGG image processor used to prepare the image for the model.
+        vgg_model: Pre-trained VGG model used to generate the image embedding.
+        normalization (bool): If True the image embedding is normalized 
+        device: Device on which the model and input tensors are processed, e.g. "cuda" or "cpu". Defaults "cpu"
+
+    Returns:
+        numpy.ndarray: VGG image embedding as a one-dimensional NumPy array.
+    """
+    inputs = image_processor(image)
+    inputs = inputs.unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        outputs = vgg_model(inputs)
+    embedding = torch.nn.functional.adaptive_avg_pool2d(outputs, (1, 1))
+    embedding = embedding.flatten(1)
+    if normalization:
+        embedding = embedding / embedding.norm(p=2, dim=-1, keepdim=True)
+
+    return embedding.cpu().numpy()
+
+
+def load_bert_model(bert_model):
+    """
+    Load a pre-trained BERT model and processor.
+
+    Args:
+        bert_model (str): Hugging Face model identifier for the BERT model.
+
+    Returns:
+        tuple: Loaded BERT model and processor.
+    """
+    print("Loading BERT model...")
+    device=get_device()
+    model = BertModel.from_pretrained('bert-base-uncased')
+    model.to(device)
+    model.eval()
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    return model, tokenizer, device
+
+
+def bert_embedding(
+    image_path,
+    embedding_descriptions,
+    tokenizer,
+    bert_model,
+    normalization,
+    device
+):
+    """
+    Generate a BERT image embedding for an image.
+
+    Args:
+        image_path (str): Path to the image file.
+        embedding_descriptions (pandas.DataFrame): DataFrame containing text descriptions to embed.
+        tokenizer: Pre-trained BERT tokenizer used to prepare the descriptions for the model.
+        bert_model: Pre-trained BERT model used to generate the embeddings.
+        normalization (bool): If True the embeddings are normalized.
+        device: Device on which the model and input tensors are processed, e.g. "cuda" or "cpu". Defaults "cpu"
+
+    Returns:
+        numpy.ndarray: BERT image embedding as a one-dimensional NumPy array.
+    """
+    image_dir, image = os.path.split(image_path)
+    # image_dir = os.path.join(image_dir, '')
+    print(image_dir, image)
+    match = embedding_descriptions[(embedding_descriptions["Dir"] == image_dir) & (embedding_descriptions["ImageID"] == image)]
+    if not match.empty:
+        description = match["description"].iloc[0]
+    encoding = tokenizer(description, padding=True, truncation=True, return_tensors='pt', add_special_tokens=True)
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device) 
+    with torch.no_grad():
+        outputs = bert_model(input_ids, attention_mask=attention_mask)
+        embeddings = outputs.last_hidden_state
+    embedding = embeddings.mean(dim=1)
     if normalization:
         embedding = embedding / embedding.norm(p=2, dim=-1, keepdim=True)
 
